@@ -18,6 +18,7 @@ export default function CollegeDashboard() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [verifyingSkill, setVerifyingSkill] = useState(null); // { studentId, skillId }
 
   const fetchCollegeData = async () => {
     try {
@@ -42,6 +43,21 @@ export default function CollegeDashboard() {
   const handleLogout = () => {
     logout();
     navigate('/');
+  };
+
+  const handleVerifySkill = async (studentId, skillId) => {
+    setVerifyingSkill({ studentId, skillId });
+    try {
+      await api.post(`/college/students/${studentId}/skills/${skillId}/verify`);
+      // Refresh students list to show updated badge
+      const studentsRes = await api.get('/college/students');
+      setStudents(studentsRes.data.students || []);
+    } catch (err) {
+      console.error('Verify skill error:', err);
+      alert(err.response?.data?.error || 'Could not verify skill. Please try again.');
+    } finally {
+      setVerifyingSkill(null);
+    }
   };
 
   const navItems = [
@@ -437,25 +453,45 @@ export default function CollegeDashboard() {
                           </p>
                         )}
 
-                        {/* Verified skills badges */}
+                        {/* Skill badges with TPO Verify button */}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                           {st.skills?.map(sk => {
-                            const isVerified = sk.status !== 'self_claimed';
+                            const isVerified = sk.status === 'college_verified';
+                            const isAssessVerified = sk.status === 'assessment_verified';
+                            const isVerifying = verifyingSkill?.studentId === st.id && verifyingSkill?.skillId === sk.skillId;
                             return (
-                              <span
-                                key={sk.id}
-                                style={{
-                                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                                  fontSize: '0.72rem', padding: '3px 8px', borderRadius: 'var(--radius-full)',
-                                  background: isVerified ? 'rgba(226, 255, 66, 0.12)' : 'var(--color-bg-secondary)',
-                                  border: isVerified ? '1px solid rgba(226, 255, 66, 0.35)' : '1px solid var(--color-border)',
-                                  color: isVerified ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-                                  fontWeight: 500,
-                                }}
-                              >
-                                {isVerified && <BadgeCheck size={12} color="#eab308" />}
-                                {sk.skill.name} {sk.score ? `(${sk.score}%)` : ''}
-                              </span>
+                              <div key={sk.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <span
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                                    fontSize: '0.72rem', padding: '3px 8px', borderRadius: 'var(--radius-full)',
+                                    background: isVerified ? 'rgba(168, 85, 247, 0.15)' : isAssessVerified ? 'rgba(226, 255, 66, 0.12)' : 'var(--color-bg-secondary)',
+                                    border: isVerified ? '1px solid rgba(168, 85, 247, 0.4)' : isAssessVerified ? '1px solid rgba(226, 255, 66, 0.35)' : '1px solid var(--color-border)',
+                                    color: isVerified ? '#a855f7' : isAssessVerified ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  {isVerified && <BadgeCheck size={12} color="#a855f7" />}
+                                  {isAssessVerified && <BadgeCheck size={12} color="#eab308" />}
+                                  {sk.skill.name} {sk.score ? `(${sk.score}%)` : ''}
+                                </span>
+                                {!isVerified && (
+                                  <button
+                                    onClick={() => handleVerifySkill(st.id, sk.skillId)}
+                                    disabled={!!verifyingSkill}
+                                    title="College-verify this skill"
+                                    style={{
+                                      padding: '2px 8px', borderRadius: 'var(--radius-full)',
+                                      background: 'rgba(168, 85, 247, 0.12)', border: '1px solid rgba(168, 85, 247, 0.3)',
+                                      color: '#a855f7', fontSize: '0.68rem', fontWeight: 600,
+                                      cursor: verifyingSkill ? 'wait' : 'pointer',
+                                      display: 'flex', alignItems: 'center', gap: 3,
+                                    }}
+                                  >
+                                    {isVerifying ? '...' : '✓ Verify'}
+                                  </button>
+                                )}
+                              </div>
                             );
                           })}
                         </div>

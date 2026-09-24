@@ -1,10 +1,29 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
 import prisma from '../lib/prisma.js';
 import { generateToken, authenticate } from '../middleware/auth.js';
 
 const router = Router();
+
+// ─── Rate Limiters ────────────────────────────────────────────────────────────
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: { error: 'Too many accounts created from this IP. Please try again in 1 hour.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // ─── Validation Schemas ───────────────────────────────────────────────────────
 
@@ -44,7 +63,7 @@ function buildTokenPayload(user, profile) {
 /**
  * POST /api/auth/signup
  */
-router.post('/signup', async (req, res, next) => {
+router.post('/signup', signupLimiter, async (req, res, next) => {
   try {
     const parsed = signupSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -122,7 +141,7 @@ router.post('/signup', async (req, res, next) => {
 /**
  * POST /api/auth/login
  */
-router.post('/login', async (req, res, next) => {
+router.post('/login', loginLimiter, async (req, res, next) => {
   try {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) {

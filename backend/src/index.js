@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
@@ -9,6 +10,8 @@ import jobsRouter from './routes/jobs.js';
 import applicationsRouter from './routes/applications.js';
 import collegeRouter from './routes/college.js';
 import recruiterRouter from './routes/recruiter.js';
+import assessmentsRouter from './routes/assessments.js';
+import resumeRouter from './routes/resume.js';
 
 dotenv.config();
 
@@ -33,6 +36,10 @@ io.on('connection', (socket) => {
 app.set('io', io);
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
+app.use(helmet({
+  crossOriginEmbedderPolicy: false, // Needed for Socket.io
+  contentSecurityPolicy: false,     // Managed by frontend build
+}));
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true,
@@ -51,6 +58,8 @@ app.use('/api/jobs', jobsRouter);
 app.use('/api/applications', applicationsRouter);
 app.use('/api/college', collegeRouter);
 app.use('/api/recruiter', recruiterRouter);
+app.use('/api/assessments', assessmentsRouter);
+app.use('/api/student/resume', resumeRouter);
 
 // ─── Global error handler ─────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {

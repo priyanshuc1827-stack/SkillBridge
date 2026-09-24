@@ -27,5 +27,5 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Prisma
-backend/prisma/migrations/
+# Prisma (generated client only — migrations SHOULD be committed)
+.prisma/

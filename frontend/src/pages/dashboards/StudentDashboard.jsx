@@ -221,75 +221,72 @@ function StatCard({ label, value, icon, delta, subtext }) {
 // ─── Skill Assessment Quiz Modal ───────────────────────────────────────────────
 
 function SkillQuizModal({ skill, onClose, onVerified }) {
-  const [step, setStep] = useState('quiz'); // 'quiz' | 'verifying' | 'result'
+  const [step, setStep] = useState('loading'); // 'loading' | 'quiz' | 'submitting' | 'result' | 'error'
+  const [sessionToken, setSessionToken] = useState(null);
+  const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
-  const [score, setScore] = useState(null);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(15 * 60); // seconds
 
-  const sampleQuestions = [
-    {
-      q: `What is a primary best practice when utilizing ${skill?.skill?.name || 'this technology'} in production?`,
-      options: [
-        'Modular architecture and proper error boundary handling',
-        'Hardcoding credentials directly into source files',
-        'Disabling caching completely across all endpoints',
-        'Bypassing linting and type-checking in CI/CD pipelines',
-      ],
-      correct: 0,
-    },
-    {
-      q: `Which metric is most critical for evaluating performance and efficiency with ${skill?.skill?.name || 'this skill'}?`,
-      options: [
-        'Number of code comments written per file',
-        'Throughput, execution latency, and resource footprint',
-        'Color scheme used in the development IDE',
-        'File size of downloaded assets on disk',
-      ],
-      correct: 1,
-    },
-    {
-      q: `How should state and concurrency be securely managed in ${skill?.skill?.name || 'this domain'}?`,
-      options: [
-        'Global mutable variables with no synchronization',
-        'Thread sleeping on every asynchronous operation',
-        'Immutability, transactional boundaries, and structured locks',
-        'Ignoring network timeouts and edge cases',
-      ],
-      correct: 2,
-    },
-  ];
+  // Fetch questions from server on mount
+  useEffect(() => {
+    const startAssessment = async () => {
+      try {
+        const res = await api.get(`/assessments/start?skillId=${skill.skillId}`);
+        setSessionToken(res.data.sessionToken);
+        setQuestions(res.data.questions);
+        setTimeLeft(res.data.timeLimitMinutes * 60);
+        setStep('quiz');
+      } catch (err) {
+        const msg = err.response?.data?.error || 'Failed to start assessment. Please try again.';
+        setError(msg);
+        setStep('error');
+      }
+    };
+    startAssessment();
+  }, [skill.skillId]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (step !== 'quiz') return;
+    if (timeLeft <= 0) {
+      handleSubmit();
+      return;
+    }
+    const timer = setTimeout(() => setTimeLeft(t => t - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [timeLeft, step]);
+
+  const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  const timeColor = timeLeft < 120 ? '#ef4444' : timeLeft < 300 ? '#eab308' : 'var(--color-text-secondary)';
 
   const handleSelect = (qIdx, optIdx) => {
-    setAnswers({ ...answers, [qIdx]: optIdx });
+    setAnswers(prev => ({ ...prev, [String(qIdx)]: optIdx }));
   };
 
-  const handleFinish = async () => {
-    setStep('verifying');
-    // Calculate score
-    let correctCount = 0;
-    sampleQuestions.forEach((q, idx) => {
-      if (answers[idx] === q.correct) correctCount++;
-    });
-    const calculatedScore = Math.max(78, Math.min(96, Math.round((correctCount / sampleQuestions.length) * 100 + (Math.random() * 8))));
-    setScore(calculatedScore);
-
+  const handleSubmit = async () => {
+    setStep('submitting');
     try {
-      await api.post('/student/skills/verify', {
-        skillId: skill.skillId,
-        score: calculatedScore,
+      const res = await api.post('/assessments/submit', {
+        sessionToken,
+        answers,
       });
-      setTimeout(() => {
-        setStep('result');
-      }, 1000);
-    } catch (err) {
-      console.error(err);
+      setResult(res.data);
       setStep('result');
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Submission failed. Please try again.';
+      setError(msg);
+      setStep('error');
     }
   };
+
+  const allAnswered = questions.length > 0 && Object.keys(answers).length >= questions.length;
 
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 100,
-      background: 'rgba(0, 0, 0, 0.65)', backdropFilter: 'blur(4px)',
+      background: 'rgba(0, 0, 0, 0.72)', backdropFilter: 'blur(6px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
     }}>
       <motion.div
@@ -297,12 +294,13 @@ function SkillQuizModal({ skill, onClose, onVerified }) {
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
         style={{
-          width: '100%', maxWidth: 540, background: 'var(--color-surface)',
+          width: '100%', maxWidth: 600, background: 'var(--color-surface)',
           border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)',
-          padding: '28px', boxShadow: 'var(--shadow-xl)',
+          padding: '28px', boxShadow: 'var(--shadow-xl)', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 36, height: 36, borderRadius: 'var(--radius-md)',
@@ -316,41 +314,107 @@ function SkillQuizModal({ skill, onClose, onVerified }) {
                 Skill Verification Assessment
               </h3>
               <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-tertiary)' }}>
-                {skill?.skill?.name} • 3 Quick Technical Questions
+                {skill?.skill?.name} • {questions.length} Questions • AI-Generated
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)' }}
-          >
-            <X size={18} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {step === 'quiz' && (
+              <span style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700, color: timeColor }}>
+                {formatTime(timeLeft)}
+              </span>
+            )}
+            {(step === 'loading' || step === 'error' || step === 'result') && (
+              <button
+                onClick={onClose}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)' }}
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
         </div>
 
+        {/* Loading */}
+        {step === 'loading' && (
+          <div style={{ padding: '50px 20px', textAlign: 'center' }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: '50%', border: '3px solid var(--color-accent)',
+              borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', margin: '0 auto 20px',
+            }} />
+            <h4 style={{ margin: '0 0 8px', color: 'var(--color-text-primary)' }}>Generating Your Assessment</h4>
+            <p style={{ margin: 0, color: 'var(--color-text-tertiary)', fontSize: '0.85rem' }}>
+              AI is creating unique questions for <strong>{skill?.skill?.name}</strong>...
+            </p>
+          </div>
+        )}
+
+        {/* Error */}
+        {step === 'error' && (
+          <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.12)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#ef4444',
+            }}>
+              <AlertCircle size={28} />
+            </div>
+            <h4 style={{ margin: '0 0 8px', color: 'var(--color-text-primary)' }}>Assessment Unavailable</h4>
+            <p style={{ margin: '0 0 20px', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>{error}</p>
+            <button onClick={onClose} style={{
+              padding: '10px 24px', borderRadius: 'var(--radius-md)', background: 'var(--color-border)',
+              color: 'var(--color-text-primary)', border: 'none', cursor: 'pointer',
+            }}>Close</button>
+          </div>
+        )}
+
+        {/* Quiz */}
         {step === 'quiz' && (
-          <div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxHeight: 380, overflowY: 'auto', paddingRight: 6 }}>
-              {sampleQuestions.map((q, qIdx) => (
-                <div key={qIdx} style={{ background: 'var(--color-bg-secondary)', padding: '16px', borderRadius: 'var(--radius-md)' }}>
-                  <p style={{ margin: '0 0 10px', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                    {qIdx + 1}. {q.q}
+          <>
+            {/* Progress */}
+            <div style={{ marginBottom: 16, flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
+                <span>{Object.keys(answers).length} of {questions.length} answered</span>
+                <span style={{ color: timeColor, fontWeight: 600 }}>Time: {formatTime(timeLeft)}</span>
+              </div>
+              <div style={{ height: 4, background: 'var(--color-bg-secondary)', borderRadius: 2 }}>
+                <div style={{
+                  height: '100%', borderRadius: 2, background: 'var(--color-accent)',
+                  width: `${(Object.keys(answers).length / questions.length) * 100}%`,
+                  transition: 'width 0.3s ease',
+                }} />
+              </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4, display: 'flex', flexDirection: 'column', gap: 18 }}>
+              {questions.map((q, qIdx) => (
+                <div key={q.id} style={{ background: 'var(--color-bg-secondary)', padding: '16px', borderRadius: 'var(--radius-md)' }}>
+                  <p style={{ margin: '0 0 12px', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text-primary)', lineHeight: 1.5 }}>
+                    {qIdx + 1}. {q.question}
                   </p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                     {q.options.map((opt, optIdx) => {
-                      const selected = answers[qIdx] === optIdx;
+                      const selected = answers[String(qIdx)] === optIdx;
                       return (
                         <button
                           key={optIdx}
                           onClick={() => handleSelect(qIdx, optIdx)}
                           style={{
-                            textAlign: 'left', padding: '9px 12px', borderRadius: 'var(--radius-sm)',
-                            border: selected ? '1px solid var(--color-accent)' : '1px solid var(--color-border)',
-                            background: selected ? 'rgba(226, 255, 66, 0.12)' : 'var(--color-surface)',
+                            textAlign: 'left', padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+                            border: selected ? '1.5px solid var(--color-accent)' : '1px solid var(--color-border)',
+                            background: selected ? 'rgba(226, 255, 66, 0.1)' : 'var(--color-surface)',
                             color: selected ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                             fontSize: '0.8125rem', cursor: 'pointer', transition: 'all 0.15s ease',
+                            display: 'flex', alignItems: 'center', gap: 10,
                           }}
                         >
+                          <span style={{
+                            width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+                            border: selected ? '1.5px solid var(--color-accent)' : '1.5px solid var(--color-border)',
+                            background: selected ? 'var(--color-accent)' : 'transparent',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            {selected && <Check size={12} color="#0F0F0D" strokeWidth={3} />}
+                          </span>
                           {opt}
                         </button>
                       );
@@ -360,77 +424,344 @@ function SkillQuizModal({ skill, onClose, onVerified }) {
               ))}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 22 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 20, flexShrink: 0 }}>
               <button
                 onClick={onClose}
                 style={{
-                  padding: '9px 16px', borderRadius: 'var(--radius-md)', background: 'transparent',
+                  padding: '10px 16px', borderRadius: 'var(--radius-md)', background: 'transparent',
                   border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)',
                   fontSize: '0.85rem', cursor: 'pointer',
                 }}
               >
-                Cancel
+                Abandon
               </button>
               <button
-                onClick={handleFinish}
-                disabled={Object.keys(answers).length < 3}
+                onClick={handleSubmit}
+                disabled={!allAnswered}
                 style={{
-                  padding: '9px 20px', borderRadius: 'var(--radius-md)',
-                  background: Object.keys(answers).length < 3 ? 'var(--color-border)' : 'var(--color-accent)',
-                  color: '#0F0F0D', fontWeight: 600, border: 'none',
-                  fontSize: '0.85rem', cursor: Object.keys(answers).length < 3 ? 'not-allowed' : 'pointer',
+                  padding: '10px 24px', borderRadius: 'var(--radius-md)',
+                  background: allAnswered ? 'var(--color-accent)' : 'var(--color-border)',
+                  color: allAnswered ? '#0F0F0D' : 'var(--color-text-tertiary)',
+                  fontWeight: 600, border: 'none',
+                  fontSize: '0.875rem', cursor: allAnswered ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.15s ease',
                 }}
               >
-                Submit & Verify
+                Submit Assessment ({Object.keys(answers).length}/{questions.length})
               </button>
             </div>
-          </div>
+          </>
         )}
 
-        {step === 'verifying' && (
-          <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+        {/* Submitting */}
+        {step === 'submitting' && (
+          <div style={{ padding: '50px 20px', textAlign: 'center' }}>
             <div style={{
-              width: 50, height: 50, borderRadius: '50%', border: '3px solid var(--color-accent)',
+              width: 48, height: 48, borderRadius: '50%', border: '3px solid var(--color-accent)',
               borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', margin: '0 auto 20px',
             }} />
-            <h4 style={{ margin: '0 0 6px', color: 'var(--color-text-primary)' }}>Evaluating Your Responses</h4>
+            <h4 style={{ margin: '0 0 8px', color: 'var(--color-text-primary)' }}>Evaluating Your Answers</h4>
             <p style={{ margin: 0, color: 'var(--color-text-tertiary)', fontSize: '0.85rem' }}>
-              Cryptographically verifying credentials & generating badge score...
+              Scoring against verified answer key...
             </p>
           </div>
         )}
 
-        {step === 'result' && (
-          <div style={{ padding: '20px 10px', textAlign: 'center' }}>
-            <div style={{
-              width: 64, height: 64, borderRadius: '50%', background: 'rgba(34, 197, 94, 0.15)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px',
-              color: '#22c55e',
-            }}>
-              <CheckCircle2 size={36} />
+        {/* Result */}
+        {step === 'result' && result && (
+          <div style={{ overflowY: 'auto', paddingRight: 4 }}>
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+              <div style={{
+                width: 72, height: 72, borderRadius: '50%',
+                background: result.passed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.12)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px',
+                color: result.passed ? '#22c55e' : '#ef4444',
+              }}>
+                {result.passed ? <CheckCircle2 size={38} /> : <AlertCircle size={38} />}
+              </div>
+              <h3 style={{ margin: '0 0 6px', fontFamily: 'var(--font-display)', fontSize: '1.6rem', color: 'var(--color-text-primary)' }}>
+                {result.passed ? `Verified! ${result.score}%` : `${result.score}% — Not Passed`}
+              </h3>
+              <p style={{ margin: '0 0 6px', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
+                {result.correctCount} of {result.totalQuestions} correct
+              </p>
+              <p style={{ margin: 0, color: result.passed ? '#22c55e' : '#ef4444', fontSize: '0.8rem', fontWeight: 500 }}>
+                {result.passed ? '🎉 Your Skill Passport badge has been upgraded to Assessment Verified!' : '60% required to pass. You can retry after 24 hours.'}
+              </p>
             </div>
-            <h3 style={{ margin: '0 0 6px', fontFamily: 'var(--font-display)', fontSize: '1.4rem', color: 'var(--color-text-primary)' }}>
-              Verified! Score: {score}%
-            </h3>
-            <p style={{ margin: '0 0 20px', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
-              Your Skill Passport for <strong>{skill?.skill?.name}</strong> has been promoted to <strong>Assessment Verified</strong>.
-            </p>
+
+            {/* Answer breakdown */}
+            {result.breakdown && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+                <h4 style={{ margin: '0 0 8px', fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                  Answer Review
+                </h4>
+                {result.breakdown.map((item, idx) => (
+                  <div key={idx} style={{
+                    padding: '12px 14px', borderRadius: 'var(--radius-md)',
+                    background: item.isCorrect ? 'rgba(34, 197, 94, 0.07)' : 'rgba(239, 68, 68, 0.07)',
+                    border: `1px solid ${item.isCorrect ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
+                  }}>
+                    <p style={{ margin: '0 0 6px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                      {idx + 1}. {item.question}
+                    </p>
+                    <p style={{ margin: 0, fontSize: '0.775rem', color: item.isCorrect ? '#22c55e' : '#ef4444' }}>
+                      {item.isCorrect ? '✓ Correct' : `✗ You chose: "${item.options[item.submittedIndex] ?? 'No answer'}" → Correct: "${item.options[item.correctIndex]}"`}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <button
-              onClick={() => {
-                onVerified();
-                onClose();
-              }}
+              onClick={() => { if (result.passed) onVerified(); onClose(); }}
               style={{
-                padding: '10px 24px', borderRadius: 'var(--radius-md)', background: 'var(--color-accent)',
-                color: '#0F0F0D', fontWeight: 600, border: 'none', cursor: 'pointer',
+                width: '100%', padding: '11px 24px', borderRadius: 'var(--radius-md)',
+                background: 'var(--color-accent)', color: '#0F0F0D',
+                fontWeight: 600, border: 'none', cursor: 'pointer', fontSize: '0.9rem',
               }}
             >
-              Done & Return to Passport
+              {result.passed ? 'Done — Return to Passport' : 'Close'}
             </button>
           </div>
         )}
       </motion.div>
+    </div>
+  );
+}
+
+// ─── Resume Upload Card ────────────────────────────────────────────────────────
+
+function ResumeUploadCard({ onSkillsExtracted }) {
+  const [uploadState, setUploadState] = useState('idle'); // 'idle' | 'uploading' | 'done' | 'error'
+  const [extractedSkills, setExtractedSkills] = useState([]);
+  const [selectedSkills, setSelectedSkills] = useState([]);
+  const [addingSkills, setAddingSkills] = useState(false);
+  const [addSuccessMsg, setAddSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [resumeUrl, setResumeUrl] = useState(null);
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('resume', file);
+
+    setUploadState('uploading');
+    setExtractedSkills([]);
+    setSelectedSkills([]);
+    setAddSuccessMsg('');
+    setErrorMsg('');
+
+    try {
+      const res = await api.post('/student/resume', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setExtractedSkills(res.data.extractedSkills || []);
+      setSelectedSkills((res.data.extractedSkills || []).map((_, i) => i)); // select all by default
+      setResumeUrl(res.data.resumeUrl);
+      setUploadState('done');
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Upload failed. Please try again.';
+      setErrorMsg(msg);
+      setUploadState('error');
+    }
+    // Clear file input so same file can be re-uploaded
+    e.target.value = '';
+  };
+
+  const handleAddSkills = async () => {
+    if (!selectedSkills.length) return;
+    setAddingSkills(true);
+    try {
+      const skillsToAdd = selectedSkills.map(i => extractedSkills[i]);
+      await Promise.all(
+        skillsToAdd.map(sk => api.post('/student/skills', { skillName: sk.name, category: sk.category || 'Other' }))
+      );
+      setAddSuccessMsg(`✓ Added ${skillsToAdd.length} skill${skillsToAdd.length !== 1 ? 's' : ''} to your Skill Passport!`);
+      setExtractedSkills([]);
+      setSelectedSkills([]);
+      onSkillsExtracted();
+    } catch (err) {
+      setErrorMsg('Some skills could not be added (they may already exist on your profile).');
+    } finally {
+      setAddingSkills(false);
+    }
+  };
+
+  const toggleSkill = (idx) => {
+    setSelectedSkills(prev =>
+      prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
+    );
+  };
+
+  return (
+    <div style={{
+      background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+      borderRadius: 'var(--radius-lg)', padding: '24px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 'var(--radius-md)',
+          background: 'rgba(226, 255, 66, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Sparkles size={16} color="var(--color-amber-600)" />
+        </div>
+        <h3 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.1rem', color: 'var(--color-text-primary)' }}>
+          AI Resume Parser
+        </h3>
+      </div>
+      <p style={{ margin: '0 0 18px', fontSize: '0.8rem', color: 'var(--color-text-tertiary)' }}>
+        Upload your resume (PDF or DOCX) — AI will extract your technical skills and add them to your Skill Passport.
+      </p>
+
+      {/* Upload Zone */}
+      {uploadState !== 'done' && (
+        <label style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          padding: '28px 20px', borderRadius: 'var(--radius-md)',
+          border: uploadState === 'uploading' ? '2px dashed var(--color-accent)' : '2px dashed var(--color-border)',
+          cursor: uploadState === 'uploading' ? 'not-allowed' : 'pointer',
+          background: 'var(--color-bg-secondary)', transition: 'border-color 0.2s ease',
+          marginBottom: 14,
+        }}>
+          {uploadState === 'uploading' ? (
+            <>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', border: '3px solid var(--color-accent)',
+                borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', marginBottom: 12,
+              }} />
+              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+                Uploading & parsing with AI...
+              </span>
+            </>
+          ) : (
+            <>
+              <BookOpen size={28} color="var(--color-text-tertiary)" style={{ marginBottom: 10 }} />
+              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>
+                Drop your resume here or click to browse
+              </span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)' }}>
+                PDF or DOCX, max 5MB
+              </span>
+            </>
+          )}
+          <input
+            type="file"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={handleFileChange}
+            disabled={uploadState === 'uploading'}
+            style={{ display: 'none' }}
+          />
+        </label>
+      )}
+
+      {/* Error state */}
+      {uploadState === 'error' && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 'var(--radius-md)',
+          background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
+          color: '#ef4444', fontSize: '0.8125rem', marginBottom: 12,
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <AlertCircle size={15} /> {errorMsg}
+        </div>
+      )}
+
+      {/* Success message */}
+      {addSuccessMsg && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 'var(--radius-md)',
+          background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)',
+          color: '#22c55e', fontSize: '0.8125rem',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <CheckCircle2 size={15} /> {addSuccessMsg}
+        </div>
+      )}
+
+      {/* Extracted skills list */}
+      {uploadState === 'done' && extractedSkills.length > 0 && (
+        <>
+          {resumeUrl && (
+            <div style={{
+              padding: '8px 12px', borderRadius: 'var(--radius-md)',
+              background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.2)',
+              color: '#22c55e', fontSize: '0.78rem', marginBottom: 14,
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <CheckCircle2 size={13} /> Resume uploaded successfully
+            </div>
+          )}
+
+          <p style={{ margin: '0 0 10px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+            Found {extractedSkills.length} skills — select which to add:
+          </p>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 16 }}>
+            {extractedSkills.map((sk, idx) => {
+              const sel = selectedSkills.includes(idx);
+              return (
+                <button
+                  key={idx}
+                  onClick={() => toggleSkill(idx)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '4px 12px', borderRadius: 'var(--radius-full)',
+                    border: sel ? '1.5px solid var(--color-accent)' : '1px solid var(--color-border)',
+                    background: sel ? 'rgba(226, 255, 66, 0.12)' : 'var(--color-bg-secondary)',
+                    color: sel ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                    fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s ease',
+                  }}
+                >
+                  {sel && <Check size={11} color="var(--color-amber-600)" strokeWidth={3} />}
+                  {sk.name}
+                  {sk.category && <span style={{ fontSize: '0.68rem', opacity: 0.6 }}>· {sk.category}</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={handleAddSkills}
+              disabled={!selectedSkills.length || addingSkills}
+              style={{
+                flex: 1, padding: '9px 16px', borderRadius: 'var(--radius-md)',
+                background: selectedSkills.length && !addingSkills ? 'var(--color-accent)' : 'var(--color-border)',
+                color: selectedSkills.length && !addingSkills ? '#0F0F0D' : 'var(--color-text-tertiary)',
+                fontWeight: 600, border: 'none', fontSize: '0.85rem',
+                cursor: selectedSkills.length && !addingSkills ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {addingSkills ? 'Adding...' : `Add ${selectedSkills.length} Selected Skill${selectedSkills.length !== 1 ? 's' : ''}`}
+            </button>
+            <button
+              onClick={() => { setUploadState('idle'); setExtractedSkills([]); setSelectedSkills([]); }}
+              style={{
+                padding: '9px 14px', borderRadius: 'var(--radius-md)',
+                background: 'transparent', border: '1px solid var(--color-border)',
+                color: 'var(--color-text-secondary)', fontSize: '0.85rem', cursor: 'pointer',
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        </>
+      )}
+
+      {uploadState === 'done' && extractedSkills.length === 0 && (
+        <div style={{ padding: '12px', textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: '0.85rem' }}>
+          No technical skills found in the uploaded resume. Try a different file.
+          <button
+            onClick={() => setUploadState('idle')}
+            style={{ display: 'block', margin: '10px auto 0', background: 'none', border: 'none', color: 'var(--color-accent)', cursor: 'pointer', fontSize: '0.85rem' }}
+          >
+            Try another file
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1444,6 +1775,9 @@ export default function StudentDashboard() {
                 </button>
               </form>
             </div>
+
+            {/* ── Resume Upload & Skill Extraction ── */}
+            <ResumeUploadCard onSkillsExtracted={() => fetchData()} />
 
             {/* Project Portfolio */}
             <div style={{

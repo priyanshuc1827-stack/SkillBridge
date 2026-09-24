@@ -148,4 +148,64 @@ router.get('/analytics', async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/college/students/:studentId/skills/:skillId/verify
+ * TPO marks a student's skill as college_verified (third tier of Skill Passport)
+ */
+router.post('/students/:studentId/skills/:skillId/verify', async (req, res, next) => {
+  try {
+    const college = await prisma.college.findUnique({ where: { userId: req.user.id } });
+    if (!college) return res.status(404).json({ error: 'College profile not found' });
+
+    // Ensure student belongs to this college
+    const student = await prisma.student.findFirst({
+      where: { id: req.params.studentId, collegeId: college.id },
+    });
+    if (!student) {
+      return res.status(403).json({ error: 'Student is not enrolled at your college' });
+    }
+
+    const studentSkill = await prisma.studentSkill.findUnique({
+      where: {
+        studentId_skillId: {
+          studentId: req.params.studentId,
+          skillId: req.params.skillId,
+        },
+      },
+      include: { skill: true },
+    });
+    if (!studentSkill) {
+      return res.status(404).json({ error: 'Student does not have this skill on their profile' });
+    }
+
+    const updated = await prisma.studentSkill.update({
+      where: {
+        studentId_skillId: {
+          studentId: req.params.studentId,
+          skillId: req.params.skillId,
+        },
+      },
+      data: { status: 'college_verified' },
+      include: { skill: true },
+    });
+
+    // Emit real-time notification to student
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`student_${req.params.studentId}`).emit('skill_college_verified', {
+        skillName: updated.skill.name,
+        collegeName: college.name,
+        message: `Your ${updated.skill.name} skill has been verified by ${college.name}! 🎓`,
+      });
+    }
+
+    res.json({
+      message: `${updated.skill.name} has been marked as college-verified for ${student.name}`,
+      studentSkill: updated,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

@@ -115,4 +115,69 @@ router.post('/', authenticate, authorize('recruiter'), async (req, res, next) =>
   }
 });
 
+/**
+ * PATCH /api/jobs/:id — update a job listing (recruiter who owns it only)
+ */
+router.patch('/:id', authenticate, authorize('recruiter'), async (req, res, next) => {
+  try {
+    const schema = z.object({
+      title: z.string().min(3).optional(),
+      description: z.string().min(20).optional(),
+      stipend: z.string().optional(),
+      type: z.enum(['internship', 'job']).optional(),
+      location: z.string().optional(),
+      isActive: z.boolean().optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors });
+    }
+
+    const company = await prisma.company.findUnique({ where: { userId: req.user.id } });
+    if (!company) return res.status(404).json({ error: 'Company profile not found' });
+
+    // Verify ownership
+    const existing = await prisma.job.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Job not found' });
+    if (existing.companyId !== company.id) return res.status(403).json({ error: 'You do not own this job listing' });
+
+    const job = await prisma.job.update({
+      where: { id: req.params.id },
+      data: parsed.data,
+      include: {
+        skills: { include: { skill: true } },
+        company: { select: { name: true, industry: true } },
+      },
+    });
+
+    res.json({ job });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/jobs/:id — deactivate (soft-delete) a job listing
+ */
+router.delete('/:id', authenticate, authorize('recruiter'), async (req, res, next) => {
+  try {
+    const company = await prisma.company.findUnique({ where: { userId: req.user.id } });
+    if (!company) return res.status(404).json({ error: 'Company profile not found' });
+
+    const existing = await prisma.job.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Job not found' });
+    if (existing.companyId !== company.id) return res.status(403).json({ error: 'You do not own this job listing' });
+
+    await prisma.job.update({
+      where: { id: req.params.id },
+      data: { isActive: false },
+    });
+
+    res.json({ message: 'Job listing has been closed successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

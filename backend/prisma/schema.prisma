@@ -52,6 +52,7 @@ model Student {
   projects           Project[]
   applications       Application[]
   assessmentResults  AssessmentResult[]
+  assessmentSessions AssessmentSession[]
 
   @@map("students")
 }
@@ -89,9 +90,10 @@ model Skill {
   name     String @unique
   category String?
 
-  studentSkills StudentSkill[]
-  jobSkills     JobSkill[]
-  assessments   Assessment[]
+  studentSkills      StudentSkill[]
+  jobSkills          JobSkill[]
+  assessments        Assessment[]
+  assessmentSessions AssessmentSession[]
 
   @@map("skills")
 }
@@ -190,6 +192,21 @@ model Assessment {
   results AssessmentResult[]
 
   @@map("assessments")
+}
+
+model AssessmentSession {
+  id           String   @id @default(cuid())
+  studentId    String   @map("student_id")
+  skillId      String   @map("skill_id")
+  sessionToken String   @unique @map("session_token")
+  questionsJson Json    @map("questions_json") // includes correct answers, never sent to client
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  skill   Skill   @relation(fields: [skillId], references: [id])
+
+  @@map("assessment_sessions")
 }
 
 model AssessmentResult {
