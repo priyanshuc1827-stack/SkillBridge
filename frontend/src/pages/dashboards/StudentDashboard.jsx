@@ -228,18 +228,30 @@ function SkillQuizModal({ skill, onClose, onVerified }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [timeLeft, setTimeLeft] = useState(15 * 60); // seconds
+  const [loadingDots, setLoadingDots] = useState('.');
+
+  // Animated dots while loading
+  useEffect(() => {
+    if (step !== 'loading') return;
+    const iv = setInterval(() => setLoadingDots(d => d.length >= 3 ? '.' : d + '.'), 500);
+    return () => clearInterval(iv);
+  }, [step]);
 
   // Fetch questions from server on mount
   useEffect(() => {
     const startAssessment = async () => {
       try {
-        const res = await api.get(`/assessments/start?skillId=${skill.skillId}`);
+        // 60-second timeout — Gemini AI generation can take up to 30s
+        const res = await api.get(`/assessments/start?skillId=${skill.skillId}`, { timeout: 60000 });
         setSessionToken(res.data.sessionToken);
         setQuestions(res.data.questions);
         setTimeLeft(res.data.timeLimitMinutes * 60);
         setStep('quiz');
       } catch (err) {
-        const msg = err.response?.data?.error || 'Failed to start assessment. Please try again.';
+        let msg = err.response?.data?.error || 'Failed to start assessment. Please try again.';
+        if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+          msg = 'Assessment generation timed out. Please try again in a moment.';
+        }
         setError(msg);
         setStep('error');
       }
@@ -339,12 +351,15 @@ function SkillQuizModal({ skill, onClose, onVerified }) {
         {step === 'loading' && (
           <div style={{ padding: '50px 20px', textAlign: 'center' }}>
             <div style={{
-              width: 48, height: 48, borderRadius: '50%', border: '3px solid var(--color-accent)',
+              width: 56, height: 56, borderRadius: '50%', border: '3px solid var(--color-accent)',
               borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', margin: '0 auto 20px',
             }} />
-            <h4 style={{ margin: '0 0 8px', color: 'var(--color-text-primary)' }}>Generating Your Assessment</h4>
-            <p style={{ margin: 0, color: 'var(--color-text-tertiary)', fontSize: '0.85rem' }}>
-              AI is creating unique questions for <strong>{skill?.skill?.name}</strong>...
+            <h4 style={{ margin: '0 0 8px', color: 'var(--color-text-primary)' }}>Generating Your Assessment{loadingDots}</h4>
+            <p style={{ margin: '0 0 8px', color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
+              AI is crafting 8 unique, scenario-based questions for <strong>{skill?.skill?.name}</strong>
+            </p>
+            <p style={{ margin: 0, color: 'var(--color-text-tertiary)', fontSize: '0.78rem' }}>
+              ⏱ This takes 10–30 seconds — please wait, do not close this window.
             </p>
           </div>
         )}

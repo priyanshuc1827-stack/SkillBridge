@@ -58,8 +58,14 @@ Return ONLY a valid JSON array with no markdown, no explanation, no preamble. Fo
 
 correctIndex is 0-based (0 = first option, 1 = second, etc.)`;
 
-    const result = await model.generateContent(prompt);
+    const result = await Promise.race([
+      model.generateContent(prompt),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini timeout after 30s')), 30000)
+      ),
+    ]);
     const text = result.response.text().trim();
+
 
     // Strip any accidental markdown code fences
     const jsonText = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
