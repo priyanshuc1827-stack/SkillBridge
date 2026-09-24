@@ -34,7 +34,7 @@ async function generateQuestions(skillName) {
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-3.6-flash' });
 
     const prompt = `You are a technical assessment generator for software engineering interviews.
 Generate 8 multiple-choice questions to assess a candidate's PRACTICAL, APPLIED knowledge of "${skillName}".

@@ -35,22 +35,30 @@ const upload = multer({
 // ─── Supabase Storage upload helper ──────────────────────────────────────────
 
 async function uploadToSupabase(buffer, filename, mimetype) {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
     // Return null — caller handles graceful degradation
     return null;
   }
 
   const { createClient } = await import('@supabase/supabase-js');
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
-  const { data, error } = await supabase.storage
-    .from('resumes')
-    .upload(filename, buffer, { contentType: mimetype, upsert: true });
+  try {
+    const { data, error } = await supabase.storage
+      .from('resumes')
+      .upload(filename, buffer, { contentType: mimetype, upsert: true });
 
-  if (error) throw new Error(`Supabase upload failed: ${error.message}`);
+    if (error) {
+      console.warn(`[Supabase Storage] Upload warning: ${error.message}`);
+      return null;
+    }
 
-  const { data: publicData } = supabase.storage.from('resumes').getPublicUrl(data.path);
-  return publicData.publicUrl;
+    const { data: publicData } = supabase.storage.from('resumes').getPublicUrl(data.path);
+    return publicData.publicUrl;
+  } catch (err) {
+    console.warn(`[Supabase Storage] Upload failed: ${err.message}`);
+    return null;
+  }
 }
 
 // ─── Gemini skill extraction helper ──────────────────────────────────────────
@@ -61,7 +69,7 @@ async function extractSkillsFromResume(buffer, mimetype) {
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-3.6-flash' });
 
     const base64 = buffer.toString('base64');
     const prompt = `You are a resume parser specialised in software engineering profiles.
